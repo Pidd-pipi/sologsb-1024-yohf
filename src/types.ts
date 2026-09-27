@@ -33,12 +33,35 @@ export interface Scene {
   cues: Cue[];
 }
 
+export interface RecipeTemplate {
+  label: string;
+  position: string;
+  channel: string;
+  color: string;
+  colorHex: string;
+  brightness: number;
+  fadeIn: number;
+  hold: number;
+  fadeOut: number;
+  targetNote: string;
+  notes: string;
+}
+
+export interface CueRecipe {
+  id: string;
+  name: string;
+  description: string;
+  updatedAt: string;
+  template: RecipeTemplate;
+}
+
 export interface LightingPlan {
   id: string;
   name: string;
   description: string;
   updatedAt: string;
   scenes: Scene[];
+  recipes: CueRecipe[];
 }
 
 export interface CueConflict {

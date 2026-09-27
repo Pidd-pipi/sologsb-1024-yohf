@@ -7,6 +7,9 @@ import {
   Button,
   ButtonGroup,
   Divider,
+  Editable,
+  EditableInput,
+  EditablePreview,
   Flex,
   FormControl,
   FormLabel,
@@ -57,13 +60,16 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowUp,
+  BookmarkPlus,
   CheckCircle2,
   ChevronRight,
   CircleDot,
   Clock3,
   Copy,
+  FlaskConical,
   GripVertical,
   Lightbulb,
+  ListPlus,
   Lock,
   LockOpen,
   Pause,
@@ -90,13 +96,16 @@ import {
   LIGHTING_STORAGE_KEY,
   canEditScene,
   canFreeze,
+  canManageRecipes,
   findActivePlan,
   findActiveScene,
   findActiveCue,
   formatTime,
+  nextCueNumber,
+  templateFromCue,
   useLightingDesk
 } from './state/useLightingDesk';
-import type { Cue, CueConflict, LightingPlan, Scene, UserRole, Workspace } from './types';
+import type { Cue, CueConflict, CueRecipe, LightingPlan, Scene, UserRole, Workspace } from './types';
 
 const statusColors = {
   draft: 'orange',
@@ -250,13 +259,16 @@ interface InspectorProps {
   roles: UserRole;
   workspace: Workspace;
   canEdit: boolean;
+  canSaveRecipe: boolean;
+  saveRecipeReason: string;
   conflicts: CueConflict[];
   onApply: (draft: Cue) => void;
   onDelete: () => void;
+  onSaveRecipe: () => void;
   onSelectCue: (cueId: string) => void;
 }
 
-function CueInspector({ cue, scene, workspace, canEdit, conflicts, onApply, onDelete, onSelectCue }: InspectorProps) {
+function CueInspector({ cue, scene, workspace, canEdit, canSaveRecipe, saveRecipeReason, conflicts, onApply, onDelete, onSaveRecipe, onSelectCue }: InspectorProps) {
   const [draft, setDraft] = useState<Cue | null>(cue ? structuredClone(cue) : null);
 
   useEffect(() => {
@@ -454,6 +466,17 @@ function CueInspector({ cue, scene, workspace, canEdit, conflicts, onApply, onDe
         <Button colorScheme="amber" isDisabled={!canEdit} leftIcon={<Save size={16} />} onClick={() => onApply(draft)}>
           应用参数并重算
         </Button>
+        <Tooltip label={canSaveRecipe ? '以当前已应用的参数存为配方（未应用的修改请先应用）' : saveRecipeReason} shouldWrapChildren>
+          <Button
+            variant="outline"
+            isDisabled={!canSaveRecipe}
+            leftIcon={<BookmarkPlus size={15} />}
+            onClick={onSaveRecipe}
+            aria-label={canSaveRecipe ? '将当前提示存为配方' : `将当前提示存为配方，${saveRecipeReason}`}
+          >
+            存为配方
+          </Button>
+        </Tooltip>
         <Spacer />
         <Button colorScheme="red" variant="ghost" isDisabled={!canEdit} leftIcon={<Trash2 size={16} />} onClick={onDelete}>
           删除
@@ -513,6 +536,163 @@ function ConflictList({
           <Text fontSize="sm">{conflict.message}</Text>
         </Box>
       ))}
+    </VStack>
+  );
+}
+
+interface RecipePanelProps {
+  recipes: CueRecipe[];
+  scene: Scene;
+  selectedCue: Cue | undefined;
+  canManage: boolean;
+  manageBlockReason: string;
+  applyBlockReason: string;
+  onSaveFromCue: () => void;
+  onApply: (recipe: CueRecipe) => void;
+  onUpdateFromCue: (recipeId: string) => void;
+  onRename: (recipeId: string, name: string) => void;
+  onDelete: (recipeId: string) => void;
+}
+
+function RecipePanel({
+  recipes,
+  scene,
+  selectedCue,
+  canManage,
+  manageBlockReason,
+  applyBlockReason,
+  onSaveFromCue,
+  onApply,
+  onUpdateFromCue,
+  onRename,
+  onDelete
+}: RecipePanelProps) {
+  const saveBlockReason = !selectedCue ? '请先在场次列表中选择一条提示，再存为配方。' : manageBlockReason;
+
+  return (
+    <VStack align="stretch" spacing={4}>
+      <Alert status="info" borderRadius="lg" variant="subtle">
+        <AlertIcon />
+        <AlertDescription fontSize="xs" lineHeight="1.6">
+          套用配方会在当前场次末尾追加一条独立副本提示，可继续单独调整；之后修改配方不会影响已经落下的提示。
+        </AlertDescription>
+      </Alert>
+
+      {applyBlockReason ? (
+        <Alert status="warning" borderRadius="lg" role="status">
+          <AlertIcon />
+          <AlertDescription fontSize="sm">{applyBlockReason}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <Box>
+        <Tooltip label={saveBlockReason || `将 ${selectedCue?.number ?? ''} 的已应用参数存为配方`} shouldWrapChildren>
+          <Button
+            w="full"
+            colorScheme="amber"
+            variant="outline"
+            leftIcon={<BookmarkPlus size={16} />}
+            isDisabled={Boolean(saveBlockReason)}
+            onClick={onSaveFromCue}
+            aria-label={saveBlockReason ? `将当前提示存为配方，${saveBlockReason}` : '将当前提示存为配方'}
+          >
+            将当前提示存为配方
+          </Button>
+        </Tooltip>
+        <Text mt={1} color="whiteAlpha.500" fontSize="11px">
+          当前提示：{selectedCue ? `${selectedCue.number} · ${selectedCue.label}` : '未选择'}
+        </Text>
+      </Box>
+
+      <Divider />
+
+      {recipes.length ? (
+        recipes.map((recipe) => (
+          <Box key={recipe.id} p={3} borderRadius="lg" bg="blackAlpha.200" borderWidth="1px" borderColor="whiteAlpha.100">
+            <Flex align="center" gap={2}>
+              <FlaskConical size={15} color="#f6c453" />
+              <Editable
+                key={`${recipe.id}-${recipe.name}`}
+                defaultValue={recipe.name}
+                isDisabled={!canManage}
+                onSubmit={(value) => onRename(recipe.id, value)}
+                fontWeight="650"
+                fontSize="sm"
+                minW={0}
+              >
+                <EditablePreview px={1} noOfLines={1} />
+                <EditableInput px={1} aria-label={`配方 ${recipe.name} 名称`} />
+              </Editable>
+              <Spacer />
+              <Tooltip label={manageBlockReason || '删除配方（已套用的提示不受影响）'} shouldWrapChildren>
+                <IconButton
+                  aria-label={`删除配方 ${recipe.name}`}
+                  icon={<Trash2 size={14} />}
+                  size="xs"
+                  variant="ghost"
+                  colorScheme="red"
+                  isDisabled={!canManage}
+                  onClick={() => onDelete(recipe.id)}
+                />
+              </Tooltip>
+            </Flex>
+            {recipe.description ? (
+              <Text mt={1} color="whiteAlpha.500" fontSize="xs">{recipe.description}</Text>
+            ) : null}
+            <Flex mt={2} align="center" gap={2} fontSize="xs">
+              <Box className="color-swatch" bg={recipe.template.colorHex} boxSize="12px" flexShrink={0} />
+              <Text noOfLines={1}>{recipe.template.label}</Text>
+            </Flex>
+            <Text mt={1} color="whiteAlpha.500" fontSize="11px">
+              {recipe.template.position} · {recipe.template.channel || '未指定通道'} · {recipe.template.color} · {recipe.template.brightness}%
+            </Text>
+            <Text color="whiteAlpha.500" fontSize="11px">
+              入 {recipe.template.fadeIn}s / 保持 {recipe.template.hold}s / 出 {recipe.template.fadeOut}s
+            </Text>
+            <Flex mt={3} gap={2} wrap="wrap">
+              <Tooltip label={applyBlockReason || `作为新提示追加到「${scene.name}」末尾`} shouldWrapChildren>
+                <Button
+                  size="sm"
+                  colorScheme="amber"
+                  leftIcon={<ListPlus size={15} />}
+                  isDisabled={Boolean(applyBlockReason)}
+                  onClick={() => onApply(recipe)}
+                  aria-label={applyBlockReason ? `套用配方 ${recipe.name}，${applyBlockReason}` : `套用配方 ${recipe.name} 到 ${scene.name}`}
+                >
+                  套用到当前场次
+                </Button>
+              </Tooltip>
+              <Tooltip
+                label={
+                  !canManage
+                    ? manageBlockReason
+                    : selectedCue
+                      ? `用 ${selectedCue.number} 的已应用参数覆盖配方内容`
+                      : '请先选择一条提示'
+                }
+                shouldWrapChildren
+              >
+                <Button
+                  size="sm"
+                  variant="outline"
+                  leftIcon={<RefreshCw size={14} />}
+                  isDisabled={!canManage || !selectedCue}
+                  onClick={() => onUpdateFromCue(recipe.id)}
+                >
+                  用当前提示更新
+                </Button>
+              </Tooltip>
+            </Flex>
+          </Box>
+        ))
+      ) : (
+        <Flex minH="160px" align="center" justify="center" color="whiteAlpha.500" textAlign="center">
+          <Box>
+            <FlaskConical size={30} style={{ margin: '0 auto 10px' }} />
+            <Text fontSize="sm">还没有配方。选择一条提示后点击「将当前提示存为配方」。</Text>
+          </Box>
+        </Flex>
+      )}
     </VStack>
   );
 }
@@ -586,6 +766,18 @@ export default function App() {
   const editable = canEditScene(workspace.role, activeScene);
   const freezer = canFreeze(workspace.role);
   const incompleteCount = activePlan.scenes.flatMap((scene) => scene.cues).filter((cue) => cue.status !== 'confirmed').length;
+  const recipes = activePlan.recipes ?? [];
+  const canManage = canManageRecipes(workspace.role);
+  const manageBlockReason = canManage
+    ? ''
+    : `当前角色「${roleLabels[workspace.role]}」只能查看配方，不能保存或修改。`;
+  const applyBlockReason = !activeScene
+    ? '尚未选择场次，配方无处写入。'
+    : activeScene.frozen
+      ? `场次「${activeScene.name}」已冻结，无法写入新提示；解除冻结后才能套用配方。`
+      : canManage
+        ? ''
+        : `当前角色「${roleLabels[workspace.role]}」没有编辑提示的权限，配方无法写入场次。`;
 
   useEffect(() => {
     try {
@@ -703,6 +895,89 @@ export default function App() {
     });
   }
 
+  function saveRecipeFromCue() {
+    if (!selectedCue || !canManage) return;
+    const id = `recipe-${Date.now().toString(36)}`;
+    commit('将当前提示存为配方', (next) => {
+      const plan = next.plans.find((item) => item.id === next.activePlanId);
+      if (!plan) return;
+      plan.recipes = plan.recipes ?? [];
+      plan.recipes.unshift({
+        id,
+        name: `${selectedCue.label || selectedCue.number} 配方`,
+        description: `来自「${activeScene?.name ?? '未命名场次'}」${selectedCue.number}。`,
+        updatedAt: new Date().toISOString(),
+        template: templateFromCue(selectedCue)
+      });
+    });
+    toast({ title: '已存为配方', description: '可在任意未冻结场次套用。', status: 'success', duration: 1800 });
+  }
+
+  function applyRecipe(recipe: CueRecipe) {
+    if (!activeScene) return;
+    if (!editable) {
+      toast({ title: '配方无法写入', description: applyBlockReason, status: 'warning' });
+      return;
+    }
+    const id = `cue-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    commit(`套用配方「${recipe.name}」到当前场次`, (next) => {
+      const scene = next.plans
+        .find((plan) => plan.id === next.activePlanId)
+        ?.scenes.find((item) => item.id === next.selectedSceneId);
+      if (!scene) return;
+      scene.cues.push({
+        id,
+        number: nextCueNumber(scene),
+        ...recipe.template,
+        followCueId: '',
+        status: 'draft'
+      });
+      next.selectedCueId = id;
+    });
+    toast({
+      title: `已套用配方「${recipe.name}」`,
+      description: '新提示为独立副本，之后修改配方不会影响它。',
+      status: 'success',
+      duration: 2200
+    });
+  }
+
+  function updateRecipeFromCue(recipeId: string) {
+    if (!selectedCue || !canManage) return;
+    commit('用当前提示更新配方', (next) => {
+      const recipe = next.plans
+        .find((plan) => plan.id === next.activePlanId)
+        ?.recipes.find((item) => item.id === recipeId);
+      if (!recipe) return;
+      recipe.template = templateFromCue(selectedCue);
+      recipe.updatedAt = new Date().toISOString();
+    });
+    toast({ title: '配方已更新', description: '已套用到场次的提示保持原样。', status: 'success', duration: 1800 });
+  }
+
+  function renameRecipe(recipeId: string, name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    commit('重命名配方', (next) => {
+      const recipe = next.plans
+        .find((plan) => plan.id === next.activePlanId)
+        ?.recipes.find((item) => item.id === recipeId);
+      if (recipe) {
+        recipe.name = trimmed;
+        recipe.updatedAt = new Date().toISOString();
+      }
+    });
+  }
+
+  function deleteRecipe(recipeId: string) {
+    const recipe = recipes.find((item) => item.id === recipeId);
+    if (!recipe || !window.confirm(`删除配方「${recipe.name}」？已套用到场次的提示不受影响。`)) return;
+    commit('删除配方', (next) => {
+      const plan = next.plans.find((item) => item.id === next.activePlanId);
+      if (plan?.recipes) plan.recipes = plan.recipes.filter((item) => item.id !== recipeId);
+    });
+  }
+
   function duplicatePlan() {
     const id = `plan-${Date.now().toString(36)}`;
     commit('复制为新方案', (next) => {
@@ -719,6 +994,7 @@ export default function App() {
           cue.followCueId = cue.followCueId ? `${id}-${cue.followCueId}` : '';
         });
       });
+      copy.recipes = (copy.recipes ?? []).map((recipe) => ({ ...recipe, id: `${id}-${recipe.id}` }));
       next.plans.push(copy);
       next.activePlanId = id;
       next.comparePlanId = source.id;
@@ -804,6 +1080,7 @@ export default function App() {
     const payload = {
       exportedAt: new Date().toISOString(),
       plan: activePlan,
+      recipes: activePlan.recipes ?? [],
       conflicts: activeConflicts,
       role: workspace.role
     };
@@ -1075,6 +1352,7 @@ export default function App() {
                 <Tab>提示编辑</Tab>
                 <Tab>冲突 <Badge ml={1} colorScheme={activeConflicts.length ? 'orange' : 'green'}>{activeConflicts.length}</Badge></Tab>
                 <Tab>关系图</Tab>
+                <Tab>配方 <Badge ml={1} colorScheme={recipes.length ? 'amber' : 'gray'}>{recipes.length}</Badge></Tab>
               </TabList>
               <TabPanels>
                 <TabPanel px={4} pb={5}>
@@ -1085,9 +1363,12 @@ export default function App() {
                       roles={workspace.role}
                       workspace={workspace}
                       canEdit={editable}
+                      canSaveRecipe={canManage}
+                      saveRecipeReason={manageBlockReason}
                       conflicts={activeCueConflicts}
                       onApply={applyCue}
                       onDelete={deleteCue}
+                      onSaveRecipe={saveRecipeFromCue}
                       onSelectCue={(cueId) => selectCue(activeScene.id, cueId)}
                     />
                   ) : null}
@@ -1127,6 +1408,23 @@ export default function App() {
                         );
                       })}
                     </VStack>
+                  ) : null}
+                </TabPanel>
+                <TabPanel px={4} pb={5}>
+                  {activeScene ? (
+                    <RecipePanel
+                      recipes={recipes}
+                      scene={activeScene}
+                      selectedCue={selectedCue}
+                      canManage={canManage}
+                      manageBlockReason={manageBlockReason}
+                      applyBlockReason={applyBlockReason}
+                      onSaveFromCue={saveRecipeFromCue}
+                      onApply={applyRecipe}
+                      onUpdateFromCue={updateRecipeFromCue}
+                      onRename={renameRecipe}
+                      onDelete={deleteRecipe}
+                    />
                   ) : null}
                 </TabPanel>
               </TabPanels>

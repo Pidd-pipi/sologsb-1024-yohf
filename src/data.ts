@@ -74,6 +74,46 @@ const mainPlan: LightingPlan = {
   name: '主舞台方案',
   description: '完整剧院版本，保留大面积侧光与低角度造型。',
   updatedAt: FIXED_TIME,
+  recipes: [
+    {
+      id: 'recipe-warm-monologue',
+      name: '暖白独白补光',
+      description: '前区暖白面光模板，适合独白段落快速补位。',
+      updatedAt: FIXED_TIME,
+      template: {
+        label: '独白补光',
+        position: '左前区',
+        channel: 'FOH L 3',
+        color: '暖白',
+        colorHex: '#FFF1C7',
+        brightness: 74,
+        fadeIn: 2.5,
+        hold: 20,
+        fadeOut: 5,
+        targetNote: '演员入画',
+        notes: '保留右侧阴影，避免过曝。'
+      }
+    },
+    {
+      id: 'recipe-cyc-night',
+      name: '天幕深蓝底色',
+      description: '天幕均匀冷色底，作为夜场基础。',
+      updatedAt: FIXED_TIME,
+      template: {
+        label: '天幕底色',
+        position: '天幕',
+        channel: 'Cyc 1',
+        color: '深蓝',
+        colorHex: '#1D4ED8',
+        brightness: 62,
+        fadeIn: 8,
+        hold: 18,
+        fadeOut: 6,
+        targetNote: '月幕形成冷色底',
+        notes: '天幕均匀，避免中心热斑。'
+      }
+    }
+  ],
   scenes: [
     scene('scene-1', '序章 · 入梦', 1, false, [
       cue('Q1', '观众席暗场', '全台', 'Grand Master', '黑场', '#000000', 0, 4, 6, 3, '', '场灯降至 10%', '开演提示与场灯联动。', 'confirmed'),
@@ -105,6 +145,27 @@ const coolPlan: LightingPlan = {
   name: '冷调实验方案',
   description: '减少正面光，以侧逆光和天幕色块建立空间。',
   updatedAt: FIXED_TIME,
+  recipes: [
+    {
+      id: 'recipe-cool-back',
+      name: '冷调侧逆光',
+      description: '低亮度薰衣草侧逆光，勾勒人物轮廓。',
+      updatedAt: FIXED_TIME,
+      template: {
+        label: '侧逆光',
+        position: '左后',
+        channel: 'Beam 1',
+        color: '薰衣草',
+        colorHex: '#8B5CF6',
+        brightness: 58,
+        fadeIn: 4,
+        hold: 28,
+        fadeOut: 10,
+        targetNote: '演员背向观众',
+        notes: ''
+      }
+    }
+  ],
   scenes: [
     scene('cool-scene-1', '序章 · 入梦（冷调）', 1, false, [
       cue('C1', '冷场', '全台', 'Grand Master', '深蓝', '#1D4ED8', 14, 5, 8, 5, '', '场灯渐暗', '冷调版本无全黑场。', 'ready'),
@@ -122,6 +183,7 @@ const tourPlan: LightingPlan = {
   name: '巡演简约方案',
   description: '适配中小剧场，合并天幕和侧光通道。',
   updatedAt: FIXED_TIME,
+  recipes: [],
   scenes: [
     scene('tour-scene-1', '序章 · 入梦', 1, false, [
       cue('T1', '场灯收束', '全台', 'Master', '暖白', '#FFF1C7', 18, 3, 5, 4, '', '开场', '巡演设备清单已确认。', 'ready'),

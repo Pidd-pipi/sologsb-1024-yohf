@@ -1,6 +1,6 @@
 import { useReducer } from 'react';
 import { recalculatePlans, samplePlans } from '../data';
-import type { Cue, EditorState, LightingPlan, Scene, UserRole, Workspace } from '../types';
+import type { Cue, EditorState, LightingPlan, RecipeTemplate, Scene, UserRole, Workspace } from '../types';
 
 export const LIGHTING_STORAGE_KEY = 'sologsb-1024/lighting-cue-desk/v1';
 
@@ -42,6 +42,9 @@ export type EditorAction =
 
 function normalizeWorkspace(workspace: Workspace) {
   recalculatePlans(workspace.plans);
+  for (const plan of workspace.plans) {
+    if (!Array.isArray(plan.recipes)) plan.recipes = [];
+  }
   const active = workspace.plans.find((plan) => plan.id === workspace.activePlanId) ?? workspace.plans[0];
   if (!active) return workspace;
   workspace.activePlanId = active.id;
@@ -167,6 +170,33 @@ export function canEditScene(role: UserRole, scene: Scene | undefined) {
 
 export function canFreeze(role: UserRole) {
   return role === 'designer' || role === 'stage-manager';
+}
+
+export function canManageRecipes(role: UserRole) {
+  return role === 'designer' || role === 'programmer';
+}
+
+export function templateFromCue(cue: Cue): RecipeTemplate {
+  return {
+    label: cue.label,
+    position: cue.position,
+    channel: cue.channel,
+    color: cue.color,
+    colorHex: cue.colorHex,
+    brightness: cue.brightness,
+    fadeIn: cue.fadeIn,
+    hold: cue.hold,
+    fadeOut: cue.fadeOut,
+    targetNote: cue.targetNote,
+    notes: cue.notes
+  };
+}
+
+export function nextCueNumber(scene: Scene) {
+  const used = new Set(scene.cues.map((cue) => cue.number));
+  let value = scene.order * 10 + scene.cues.length + 1;
+  while (used.has(`Q${value}`)) value += 1;
+  return `Q${value}`;
 }
 
 export function formatTime(value: number | undefined) {
