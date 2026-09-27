@@ -33,12 +33,45 @@ export interface Scene {
   cues: Cue[];
 }
 
+/**
+ * 配方内保存的提示快照。不含 id / 时间字段：
+ * id 在套用时重新生成，因此后续提示与配方互不影响；
+ * followRef 只在同一配方内引用条目，套用顺序中位于其前的条目。
+ */
+export interface CueRecipeItem {
+  ref: string;
+  number: string;
+  label: string;
+  position: string;
+  channel: string;
+  color: string;
+  colorHex: string;
+  brightness: number;
+  fadeIn: number;
+  hold: number;
+  fadeOut: number;
+  followRef: string;
+  targetNote: string;
+  notes: string;
+  status: CueStatus;
+}
+
+export interface CueRecipe {
+  id: string;
+  name: string;
+  createdAt: string;
+  /** 保存快照时来源场次的名称，仅用于说明，不参与套用逻辑。 */
+  sourceSceneName: string;
+  items: CueRecipeItem[];
+}
+
 export interface LightingPlan {
   id: string;
   name: string;
   description: string;
   updatedAt: string;
   scenes: Scene[];
+  recipes: CueRecipe[];
 }
 
 export interface CueConflict {

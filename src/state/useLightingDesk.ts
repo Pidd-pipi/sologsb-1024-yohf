@@ -42,6 +42,10 @@ export type EditorAction =
 
 function normalizeWorkspace(workspace: Workspace) {
   recalculatePlans(workspace.plans);
+  // 兼容旧版草稿：配方字段缺失时补空数组。
+  for (const plan of workspace.plans) {
+    if (!Array.isArray(plan.recipes)) plan.recipes = [];
+  }
   const active = workspace.plans.find((plan) => plan.id === workspace.activePlanId) ?? workspace.plans[0];
   if (!active) return workspace;
   workspace.activePlanId = active.id;
@@ -163,6 +167,28 @@ export function findActiveCue(workspace: Workspace): Cue | undefined {
 
 export function canEditScene(role: UserRole, scene: Scene | undefined) {
   return Boolean(scene && !scene.frozen && role !== 'readonly' && role !== 'stage-manager');
+}
+
+/**
+ * 保存配方只校验角色：舞台监督与只读角色没有内容编辑权限。
+ * 即使场次已冻结，仍可把已确认内容存成配方供新场次复用。
+ */
+export function canSaveRecipe(role: UserRole) {
+  return role === 'designer' || role === 'programmer';
+}
+
+/** 套用配方属于写入场次内容，沿用场次编辑规则。 */
+export function canApplyRecipe(role: UserRole, scene: Scene | undefined) {
+  return canEditScene(role, scene);
+}
+
+/** 套用入口的不可写原因；可写时返回空字符串。 */
+export function recipeWriteBlockReason(role: UserRole, scene: Scene | undefined) {
+  if (!scene) return '请先选择一个场次。';
+  if (scene.frozen) return `场次「${scene.name}」已冻结，解除冻结后才能从配方追加提示。`;
+  if (role === 'readonly') return '当前角色为只读查看，不能向场次写入提示。';
+  if (role === 'stage-manager') return '当前角色为舞台监督，只能冻结/解冻场次，不能写入提示。';
+  return '';
 }
 
 export function canFreeze(role: UserRole) {

@@ -1,4 +1,4 @@
-import type { Cue, CueConflict, LightingPlan, Scene, UserRole } from './types';
+import type { Cue, CueConflict, CueRecipe, CueRecipeItem, LightingPlan, Scene, UserRole } from './types';
 
 const FIXED_TIME = '2026-09-25T02:00:00.000Z';
 
@@ -97,7 +97,8 @@ const mainPlan: LightingPlan = {
       cue('Q30', '归岸定点', '前区', 'FOH 1-2', '暖白', '#FFF1C7', 48, 8, 26, 10, '', '演员回到长椅', '已与导演确认。', 'confirmed'),
       cue('Q31', '星空落幕', '天幕', 'Cyc 2', '薰衣草', '#8B5CF6', 34, 6, 36, 16, 'cue-12', '演员抬头后', '冻结场次，保留最终状态。', 'confirmed')
     ])
-  ]
+  ],
+  recipes: []
 };
 
 const coolPlan: LightingPlan = {
@@ -114,7 +115,8 @@ const coolPlan: LightingPlan = {
       cue('C10', '侧逆光', '左后', 'Beam 1', '薰衣草', '#8B5CF6', 58, 4, 28, 10, '', '演员背向观众', ''),
       cue('C11', '边缘呼吸', '右侧', 'Side 5', '品红', '#D946EF', 42, 1, 7, 4, 'cue-14', '台词停顿', '')
     ])
-  ]
+  ],
+  recipes: []
 };
 
 const tourPlan: LightingPlan = {
@@ -131,10 +133,83 @@ const tourPlan: LightingPlan = {
       cue('T10', '侧光推进', '后区', 'Wash B', '松绿', '#059669', 64, 2, 20, 5, '', '群舞起点', ''),
       cue('T11', '潮点', '全台', 'Master', '琥珀', '#F59E0B', 84, 1, 2, 7, 'cue-16', '鼓点', '')
     ])
-  ]
+  ],
+  recipes: []
 };
 
 export const samplePlans = [mainPlan, coolPlan, tourPlan];
+
+/**
+ * 把当前场次的提示保存为配方快照：剔除运行时 id 与重算时间，
+ * 跟随关系改写为配方内部 ref，保证以后改配方不会影响已落下的提示。
+ */
+export function createRecipeFromScene(scene: Scene, name: string, recipeId?: string): CueRecipe {
+  const idByIndex = new Map<number, string>();
+  scene.cues.forEach((cue, index) => {
+    idByIndex.set(index, `r-${index + 1}`);
+  });
+  const idByCueId = new Map<string, string>();
+  scene.cues.forEach((cue, index) => {
+    idByCueId.set(cue.id, idByIndex.get(index) ?? `r-${index + 1}`);
+  });
+
+  const items: CueRecipeItem[] = scene.cues.map((cue, index) => ({
+    ref: idByIndex.get(index) ?? `r-${index + 1}`,
+    number: cue.number,
+    label: cue.label,
+    position: cue.position,
+    channel: cue.channel,
+    color: cue.color,
+    colorHex: cue.colorHex,
+    brightness: cue.brightness,
+    fadeIn: cue.fadeIn,
+    hold: cue.hold,
+    fadeOut: cue.fadeOut,
+    followRef: cue.followCueId ? (idByCueId.get(cue.followCueId) ?? '') : '',
+    targetNote: cue.targetNote,
+    notes: cue.notes,
+    status: cue.status
+  }));
+
+  return {
+    id: recipeId ?? `recipe-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    name: name.trim() || `${scene.name} 配方`,
+    createdAt: new Date().toISOString(),
+    sourceSceneName: scene.name,
+    items
+  };
+}
+
+/**
+ * 从配方生成可追加到场次末尾的新提示：全部重新分配 id，
+ * 跟随目标只在同一配方条目之间建立，与配方对象本身再无引用关系。
+ */
+export function instantiateRecipeCues(recipe: CueRecipe): Cue[] {
+  const idByRef = new Map<string, string>();
+  recipe.items.forEach((item, index) => {
+    idByRef.set(item.ref, `cue-${Date.now().toString(36)}-${index}-${Math.random().toString(36).slice(2, 7)}`);
+  });
+  return recipe.items.map((item) => {
+    const followCueId = item.followRef && idByRef.has(item.followRef) ? (idByRef.get(item.followRef) as string) : '';
+    return {
+      id: idByRef.get(item.ref) as string,
+      number: item.number,
+      label: item.label,
+      position: item.position,
+      channel: item.channel,
+      color: item.color,
+      colorHex: item.colorHex,
+      brightness: item.brightness,
+      fadeIn: item.fadeIn,
+      hold: item.hold,
+      fadeOut: item.fadeOut,
+      followCueId,
+      targetNote: item.targetNote,
+      notes: item.notes,
+      status: item.status
+    };
+  });
+}
 
 export function recalculatePlans(plans: LightingPlan[]) {
   for (const plan of plans) {

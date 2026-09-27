@@ -57,6 +57,8 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowUp,
+  Bookmark,
+  BookmarkPlus,
   CheckCircle2,
   ChevronRight,
   CircleDot,
@@ -76,27 +78,33 @@ import {
   Trash2,
   Undo2,
   Unlock,
+  Wand2,
   Wifi,
   WifiOff
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   colorPresets,
+  createRecipeFromScene,
   detectConflicts,
+  instantiateRecipeCues,
   roleLabels,
   statusLabels
 } from './data';
 import {
   LIGHTING_STORAGE_KEY,
+  canApplyRecipe,
   canEditScene,
   canFreeze,
+  canSaveRecipe,
   findActivePlan,
   findActiveScene,
   findActiveCue,
   formatTime,
+  recipeWriteBlockReason,
   useLightingDesk
 } from './state/useLightingDesk';
-import type { Cue, CueConflict, LightingPlan, Scene, UserRole, Workspace } from './types';
+import type { Cue, CueConflict, CueRecipe, LightingPlan, Scene, UserRole, Workspace } from './types';
 
 const statusColors = {
   draft: 'orange',
@@ -566,6 +574,136 @@ function ComparePlan({
   );
 }
 
+interface RecipeLibraryProps {
+  plan: LightingPlan;
+  scene: Scene | undefined;
+  role: UserRole;
+  onSaveScene: (name: string) => void;
+  onApply: (recipe: CueRecipe) => void;
+  onDelete: (recipeId: string) => void;
+}
+
+function RecipeLibrary({ plan, scene, role, onSaveScene, onApply, onDelete }: RecipeLibraryProps) {
+  const recipes = plan.recipes;
+  const saveAllowed = canSaveRecipe(role);
+  const writeBlocked = recipeWriteBlockReason(role, scene);
+  const applyAllowed = canApplyRecipe(role, scene);
+
+  return (
+    <VStack align="stretch" spacing={3}>
+      <Alert status="info" borderRadius="lg">
+        <AlertIcon />
+        <AlertDescription fontSize="xs" lineHeight={1.6}>
+          配方保存提示快照。套用时会复制为新提示追加到场次末尾，之后可独立调整；修改或删除配方不会影响已经落下的提示。
+        </AlertDescription>
+      </Alert>
+
+      {writeBlocked ? (
+        <Alert status="warning" borderRadius="lg">
+          <AlertIcon />
+          <AlertDescription fontSize="xs" lineHeight={1.6}>{writeBlocked}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <Flex gap={2}>
+        <Tooltip
+          label={
+            !scene
+              ? '请先选择一个场次'
+              : !scene.cues.length
+                ? '当前场次没有提示，无法保存为空配方'
+                : !saveAllowed
+                  ? '当前角色没有内容编辑权限，不能保存配方'
+                  : '把当前场次全部提示存成配方快照'
+          }
+        >
+          <Button
+            size="sm"
+            colorScheme="amber"
+            flex="1"
+            leftIcon={<BookmarkPlus size={15} />}
+            isDisabled={!scene || !scene.cues.length || !saveAllowed}
+            onClick={() => {
+              if (!scene) return;
+              const defaultName = `${scene.name} · ${scene.cues.length} 条提示`;
+              const name = window.prompt('为这套灯光配方命名', defaultName);
+              if (name !== null) onSaveScene(name);
+            }}
+          >
+            把当前场次存为配方
+          </Button>
+        </Tooltip>
+      </Flex>
+
+      <Text color="whiteAlpha.600" fontSize="xs" aria-live="polite">
+        {plan.name}共保存 {recipes.length} 套配方{scene ? `，套用目标：${scene.name}` : ''}
+      </Text>
+
+      {!recipes.length ? (
+        <Flex minH="150px" align="center" justify="center" color="whiteAlpha.500" textAlign="center" borderRadius="lg" borderWidth="1px" borderStyle="dashed" borderColor="whiteAlpha.200">
+          <Box>
+            <Bookmark size={26} style={{ margin: '0 auto 8px' }} />
+            <Text fontSize="sm">还没有配方。排好一组提示后存为配方，新场次即可一键追加。</Text>
+          </Box>
+        </Flex>
+      ) : null}
+
+      {recipes.map((recipe) => (
+        <Box key={recipe.id} p={3} borderRadius="lg" bg="blackAlpha.200" borderWidth="1px" borderColor="whiteAlpha.100">
+          <Flex align="center" gap={2}>
+            <Bookmark size={14} color="#f6c453" />
+            <Text fontWeight="700" fontSize="sm" flex="1" noOfLines={1}>{recipe.name}</Text>
+            <Tag size="sm" colorScheme="purple">{recipe.items.length} 条</Tag>
+          </Flex>
+          <Text mt={1} color="whiteAlpha.500" fontSize="10px">
+            来源「{recipe.sourceSceneName}」 · 保存于 {new Date(recipe.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+          </Text>
+          <VStack mt={2} align="stretch" spacing={1}>
+            {recipe.items.slice(0, 4).map((item) => (
+              <Flex key={item.ref} align="center" gap={2} fontSize="xs">
+                <Box className="color-swatch" bg={item.colorHex} boxSize="10px" flexShrink={0} />
+                <Text fontFamily="mono" color="amber.300" w="40px">{item.number}</Text>
+                <Text flex="1" minW={0} noOfLines={1}>{item.label}</Text>
+                {item.followRef ? <Tag size="sm" variant="subtle" colorScheme="purple">跟随</Tag> : null}
+              </Flex>
+            ))}
+            {recipe.items.length > 4 ? (
+              <Text color="whiteAlpha.500" fontSize="10px">其余 {recipe.items.length - 4} 条套用后在场次中查看…</Text>
+            ) : null}
+          </VStack>
+          <HStack mt={3}>
+            <Tooltip label={writeBlocked || `把 ${recipe.items.length} 条提示追加到「${scene?.name ?? ''}」末尾`}>
+              <Button
+                size="xs"
+                colorScheme="amber"
+                flex="1"
+                leftIcon={<Wand2 size={13} />}
+                isDisabled={!applyAllowed}
+                onClick={() => onApply(recipe)}
+              >
+                追加到当前场次
+              </Button>
+            </Tooltip>
+            <Tooltip label={!saveAllowed ? '当前角色不能管理配方' : '删除配方（不影响已套用的提示）'}>
+              <IconButton
+                aria-label={`删除配方 ${recipe.name}`}
+                size="xs"
+                variant="ghost"
+                colorScheme="red"
+                icon={<Trash2 size={13} />}
+                isDisabled={!saveAllowed}
+                onClick={() => {
+                  if (window.confirm(`删除配方「${recipe.name}」？已经套用的提示不受影响。`)) onDelete(recipe.id);
+                }}
+              />
+            </Tooltip>
+          </HStack>
+        </Box>
+      ))}
+    </VStack>
+  );
+}
+
 export default function App() {
   const [state, dispatch] = useLightingDesk();
   const [hydrated, setHydrated] = useState(false);
@@ -692,8 +830,40 @@ export default function App() {
     });
   }
 
-  function toggleFreeze() {
-    if (!activeScene || !freezer) {
+  function saveSceneAsRecipe(name: string) {
+    if (!activeScene || !canSaveRecipe(workspace.role) || !activeScene.cues.length) return;
+    const recipe = createRecipeFromScene(activeScene, name);
+    commit('把当前场次存为灯光配方', (next) => {
+      const plan = next.plans.find((item) => item.id === next.activePlanId);
+      if (plan) plan.recipes.push(recipe);
+    });
+    toast({ title: '已保存配方', description: `「${recipe.name}」含 ${recipe.items.length} 条提示快照`, status: 'success', duration: 2200 });
+  }
+
+  function applyRecipe(recipe: CueRecipe) {
+    if (!activeScene || !canApplyRecipe(workspace.role, activeScene)) return;
+    const newCues = instantiateRecipeCues(recipe);
+    if (!newCues.length) return;
+    commit('从配方追加提示并重算', (next) => {
+      const scene = next.plans
+        .find((plan) => plan.id === next.activePlanId)
+        ?.scenes.find((item) => item.id === next.selectedSceneId);
+      if (!scene) return;
+      scene.cues.push(...newCues);
+      next.selectedCueId = newCues[0].id;
+    });
+    toast({ title: '配方已套用', description: `${newCues.length} 条提示已追加到「${activeScene.name}」，可继续独立调整。`, status: 'success', duration: 2600 });
+  }
+
+  function deleteRecipe(recipeId: string) {
+    if (!canSaveRecipe(workspace.role)) return;
+    commit('删除灯光配方', (next) => {
+      const plan = next.plans.find((item) => item.id === next.activePlanId);
+      if (plan) plan.recipes = plan.recipes.filter((recipe) => recipe.id !== recipeId);
+    });
+  }
+
+  function toggleFreeze() {    if (!activeScene || !freezer) {
       toast({ title: '当前角色不能冻结或解冻场次', status: 'warning' });
       return;
     }
@@ -804,6 +974,7 @@ export default function App() {
     const payload = {
       exportedAt: new Date().toISOString(),
       plan: activePlan,
+      recipes: activePlan.recipes,
       conflicts: activeConflicts,
       role: workspace.role
     };
@@ -990,6 +1161,27 @@ export default function App() {
                   <Spacer />
                   <ButtonGroup size="sm" variant="outline">
                     <Button leftIcon={<Plus size={15} />} isDisabled={!editable} onClick={addCue}>新增提示</Button>
+                    <Tooltip
+                      label={
+                        !canSaveRecipe(workspace.role)
+                          ? '当前角色没有内容编辑权限，不能保存配方'
+                          : !activeScene.cues.length
+                            ? '当前场次没有提示，无法保存配方'
+                            : '把当前场次提示存成配方快照，可在右侧「配方」页追加到其他场次'
+                      }
+                    >
+                      <Button
+                        leftIcon={<BookmarkPlus size={15} />}
+                        isDisabled={!canSaveRecipe(workspace.role) || !activeScene.cues.length}
+                        onClick={() => {
+                          const defaultName = `${activeScene.name} · ${activeScene.cues.length} 条提示`;
+                          const name = window.prompt('为这套灯光配方命名', defaultName);
+                          if (name !== null) saveSceneAsRecipe(name);
+                        }}
+                      >
+                        存为配方
+                      </Button>
+                    </Tooltip>
                     <Button leftIcon={activeScene.frozen ? <LockOpen size={15} /> : <Lock size={15} />} isDisabled={!freezer} onClick={toggleFreeze}>
                       {activeScene.frozen ? '解除冻结' : '冻结场次'}
                     </Button>
@@ -1074,6 +1266,7 @@ export default function App() {
               <TabList px={3} pt={2}>
                 <Tab>提示编辑</Tab>
                 <Tab>冲突 <Badge ml={1} colorScheme={activeConflicts.length ? 'orange' : 'green'}>{activeConflicts.length}</Badge></Tab>
+                <Tab>配方 <Badge ml={1} colorScheme={activePlan.recipes.length ? 'amber' : 'gray'}>{activePlan.recipes.length}</Badge></Tab>
                 <Tab>关系图</Tab>
               </TabList>
               <TabPanels>
@@ -1097,6 +1290,18 @@ export default function App() {
                     conflicts={activeConflicts}
                     onSelect={(sceneId, cueId) => selectCue(sceneId, cueId)}
                   />
+                </TabPanel>
+                <TabPanel px={4} pb={5}>
+                  {activeScene ? (
+                    <RecipeLibrary
+                      plan={activePlan}
+                      scene={activeScene}
+                      role={workspace.role}
+                      onSaveScene={saveSceneAsRecipe}
+                      onApply={applyRecipe}
+                      onDelete={deleteRecipe}
+                    />
+                  ) : null}
                 </TabPanel>
                 <TabPanel px={4} pb={5}>
                   {activeScene ? (
